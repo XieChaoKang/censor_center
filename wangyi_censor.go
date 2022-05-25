@@ -37,9 +37,24 @@ func (w *WangYiCensor) CensorText(p *CensorTextParams) error {
 		return nil
 	}
 	var texts []map[string]string
+	var errResult error
 	errChan := make(chan error)
+	go func() {
+		for err := range errChan {
+			if errResult == nil && err != nil {
+				errResult = err
+			}
+		}
+	}()
 	concurrent := make(chan struct{}, 5)
+	defer func() {
+		close(errChan)
+		close(concurrent)
+	}()
 	for index, t := range p.Text {
+		if errResult != nil {
+			return errResult
+		}
 		params := make(map[string]string)
 		params["dataId"] = genDataId()
 		params["content"] = t
