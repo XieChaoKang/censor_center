@@ -1,4 +1,4 @@
-module event
+module censor-center
 
 go 1.18
 

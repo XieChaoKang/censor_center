@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	_ "net/http/pprof"
+	"time"
 )
 
 const (
@@ -21,6 +23,20 @@ var (
 	ErrorIllegalText = errors.New("illegal text")
 )
 
+func AA() {
+	sem := make(chan struct{}, 5)
+	for i := 0; i < 100; i++ {
+		sem <- struct{}{}
+		go func() {
+			defer func() {
+				<- sem
+			}()
+			time.Sleep(2 * time.Second)
+		}()
+		fmt.Println(i)
+	}
+}
+
 func main() {
 	tp := &CensorTextParams{
 		Text: []string{"测试哈哈哈哈哈哈哈"},
@@ -37,4 +53,10 @@ func main() {
 	if err != nil {
 		fmt.Println("ccc ip ---> ", err)
 	}
+	//go func() {
+	//	log.Println(http.ListenAndServe("localhost:9876", nil))
+	//}()
+	//AA()
+	//
+	//select{}
 }

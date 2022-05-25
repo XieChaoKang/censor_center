@@ -36,39 +36,63 @@ func (w *WangYiCensor) CensorText(p *CensorTextParams) error {
 	if p == nil || len(p.Text) == 0 {
 		return nil
 	}
-	params := url.Values{}
-	for _, t := range p.Text {
-		params["dataId"] = []string{genDataId()}
-		params["content"] = []string{t}
-		params["secretId"] = []string{secretId}
-		params["businessId"] = []string{businessId}
-		params["version"] = []string{version}
-		params["timestamp"] = []string{strconv.FormatInt(time.Now().UnixNano()/1000000, 10)}
-		params["nonce"] = []string{strconv.FormatInt(rand.New(rand.NewSource(time.Now().UnixNano())).Int63n(10000000000), 10)}
-		params["signature"] = []string{genSignature(params, secretKey)}
-		resp, err := http.Post(apiUrl, "application/x-www-form-urlencoded", strings.NewReader(params.Encode()))
-		if err != nil {
-			return err
-		}
-		contents, err := ioutil.ReadAll(resp.Body)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if resp.StatusCode != http.StatusOK {
-			return errors.New(fmt.Sprintf("res body: %s, statusCode: %d", string(contents), resp.StatusCode))
-		}
-		res := &WangYiTextCensorResult{}
-		err = json.Unmarshal(contents, res)
-		if err != nil {
-			return err
-		}
-		fmt.Println("wang contents------> ", string(contents))
-		if len(res.Result) == 0 || res.Result["antispam"] == nil || res.Result["antispam"].Suggestion != 0 {
-			return ErrorIllegalText
+	var texts []map[string]string
+	errChan := make(chan error)
+	concurrent := make(chan struct{}, 5)
+	for index, t := range p.Text {
+		params := make(map[string]string)
+		params["dataId"] = genDataId()
+		params["content"] = t
+		texts = append(texts, params)
+		if index < len(p.Text) - 1 && len(texts) < 99 {
+			concurrent <- struct{}{}
+			go func() {
+				defer func() {
+					<- concurrent
+				}()
+				err := w.censorText(texts, p)
+				if err != nil {
+					errChan <- err
+				}
+			}()
 		}
 	}
 	return nil
 }
+
+func (w *WangYiCensor) censorText(texts []map[string]string, p *CensorTextParams) error {
+	params := url.Values{}
+	bytes, _ := json.Marshal(texts)
+	params["texts"] = []string{string(bytes)}
+	params["secretId"] = []string{secretId}
+	params["businessId"] = []string{businessId}
+	params["version"] = []string{version}
+	params["timestamp"] = []string{strconv.FormatInt(time.Now().UnixNano()/1000000, 10)}
+	params["nonce"] = []string{strconv.FormatInt(rand.New(rand.NewSource(time.Now().UnixNano())).Int63n(10000000000), 10)}
+	params["signature"] = []string{genSignature(params, secretKey)}
+	resp, err := http.Post(apiUrl, "application/x-www-form-urlencoded", strings.NewReader(params.Encode()))
+	if err != nil {
+		return err
+	}
+	contents, err := ioutil.ReadAll(resp.Body)
+	if err != nil && err != io.EOF {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return errors.New(fmt.Sprintf("res body: %s, statusCode: %d", string(contents), resp.StatusCode))
+	}
+	res := &WangYiTextCensorResult{}
+	err = json.Unmarshal(contents, res)
+	if err != nil {
+		return err
+	}
+	fmt.Println("wang contents------> ", string(contents))
+	if len(res.Result) == 0 || res.Result["antispam"] == nil || res.Result["antispam"].Suggestion != 0 {
+		return ErrorIllegalText
+	}
+	return nil
+}
+
 
 // 参考：https://support.dun.163.com/documents/588434277524447232?docId=588512292354793472
 func (w *WangYiCensor) CensorImage(p *CensorImageParams) error {
